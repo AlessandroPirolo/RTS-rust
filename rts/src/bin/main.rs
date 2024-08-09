@@ -4,6 +4,12 @@
 
 use rts as _; // global logger + panicking-behavior + memory layout
 
+/* teporary */
+mod auxiliary;
+mod parameters;
+mod production_workload;
+
+
 // TODO(7) Configure the `rtic::app` macro
 #[rtic::app(
     // TODO: Replace `nrf52840_hal::pac` with the path to the PAC
