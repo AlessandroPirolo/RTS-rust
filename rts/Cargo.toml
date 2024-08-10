@@ -14,7 +14,7 @@ rtic = { version = "2.0.0", features = [ "thumbv7-backend" ] }
 # TODO(5) Add hal as dependency
 nrf52840-hal = "0.16.0"
 # TODO add a monotonic if you use scheduling
-rtic-monotonics = { version = "1.0.0", features = [ "cortex-m-systick" ]}
+rtic-monotonics = { version = "2.0.2", features = [ "cortex-m-systick" ]}
 num-traits = { version = "0.2", default-features = false, features = ["libm"] }
 
 # cargo build/run

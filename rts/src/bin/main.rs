@@ -8,7 +8,9 @@ use rts as _; // global logger + panicking-behavior + memory layout
 mod auxiliary;
 mod parameters;
 mod production_workload;
-
+mod activation_manager;
+mod request_buffer;
+mod activation_log;
 
 // TODO(7) Configure the `rtic::app` macro
 #[rtic::app(

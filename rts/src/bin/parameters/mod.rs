@@ -61,7 +61,7 @@ pub mod parameters {
     }
 
     pub mod request_buffer {
-        const REQUEST_BUFFER_RANGE: u32 = 5;
+        pub const REQUEST_BUFFER_RANGE: u32 = 5;
     }
 
     pub mod external_event_server {
