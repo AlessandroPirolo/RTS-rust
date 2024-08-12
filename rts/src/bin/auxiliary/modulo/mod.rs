@@ -1,22 +1,22 @@
 pub mod modulo {
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct Mod {
-        modulus: u16,
-        value: u16,
+        modulus: u32,
+        value: u32,
     }
 
     impl Mod {
-        pub fn new(modulus: u16) -> Self {
+        pub fn new(modulus: u32) -> Self {
             Self { modulus, value: 0 }
         }
 
         pub fn increment(&mut self) -> () {
-            let mut tmp: u16 = self.value + 1;
+            let mut tmp: u32 = self.value + 1;
             tmp = ((tmp % self.modulus) + self.modulus) % self.modulus;
             self.value = tmp;
         }
 
-        pub fn to_int(&self) -> u16 {
+        pub fn to_int(&self) -> u32 {
             self.value
         }
     }

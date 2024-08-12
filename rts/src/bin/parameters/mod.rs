@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 pub mod parameters {
 
     // Regular producer paramters
@@ -6,25 +7,25 @@ pub mod parameters {
         use crate::production_workload::production_workload;
         use crate::auxiliary::auxiliary;
 
-        const PRIORITY: u32 = 7;
-        const PERIOD: u32 = 1000; // in millisec
+        pub const PRIORITY: u32 = 7;
+        pub const PERIOD: u32 = 1000; // in millisec
 
         const REGULAR_PRODUCER_WORKLOAD: u32 = 756;
         const ON_CALL_PRODUCER_WORKLOAD: u32 = 278;
 
-        const ACTIVATION_CONDITION: u16 = 2;
+        const ACTIVATION_CONDITION: u32 = 2;
 
-        pub fn operation(workload: production_workload::WorkloadProd, aux: auxiliary::Aux) -> () {
+        pub fn operation(mut workload: production_workload::WorkloadProd, mut aux: auxiliary::Aux) -> () {
             workload.small_whetstone(REGULAR_PRODUCER_WORKLOAD);
 
             if aux.due_activation(ACTIVATION_CONDITION) {
-                if !o.start(ON_CALL_PRODUCER_WORKLOAD) {
+                /*if !o.start(ON_CALL_PRODUCER_WORKLOAD) {
                     defmt::info!("Failed sporadic activation.");
                 }
             }
 
             if aux.check_due() {
-                log_reader.signal()
+                log_reader.signal()*/
             }
             defmt::info!("End of cyclic activation.");
         }

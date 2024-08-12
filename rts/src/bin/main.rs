@@ -10,17 +10,18 @@ mod parameters;
 mod production_workload;
 mod activation_manager;
 mod request_buffer;
-mod activation_log;
+mod activation_log; 
 
-// TODO(7) Configure the `rtic::app` macro
 #[rtic::app(
     // TODO: Replace `nrf52840_hal::pac` with the path to the PAC
     device = nrf52840_hal::pac,
+    peripherals = true,
     // TODO: Replace the `SWI0_EGU0` with free interrupt vectors if software tasks are used
     // You can usually find the names of the interrupt vectors in the nrf52840_hal::pac::interrupt enum.
-    dispatchers = [SWI0_EGU0]
+    dispatchers = [SWI0_EGU0, SWI1_EGU1, SWI2_EGU2]
 )]
 mod app {
+    use crate::parameters::parameters::*;
     // Shared resources go here
     #[shared]
     struct Shared {
@@ -43,7 +44,7 @@ mod app {
         // rtic_monotonics::systick::Systick::new(cx.core.SYST, sysclk, token);
 
 
-        task1::spawn().ok();
+        regular_producer::spawn().ok();
 
         (
             Shared {
@@ -65,9 +66,20 @@ mod app {
         }
     }
 
-    // TODO: Add tasks
-    #[task(priority = 1)]
-    async fn task1(_cx: task1::Context) {
-        defmt::info!("Hello from task1!");
+    #[task(priority = 7)]
+    async fn regular_producer(_cx: regular_producer::Context) {
+        
     }
+
+    #[task(priority = 5)]
+    async fn on_call_producer(_cx: on_call_producer::Context) {
+        
+    }
+
+    #[task(priority = 3)]
+    async fn activation_log_reader(_cx: activation_log_reader::Context) {
+
+    }
+
+
 }

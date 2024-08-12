@@ -1,11 +1,11 @@
 pub mod request_buffer {
      use crate::parameters::parameters::request_buffer::REQUEST_BUFFER_RANGE;
-     use crate::auxiliary::modulo::modulo;
+     use crate::auxiliary::modulo::modulo::Mod;
 
      pub struct RequestBuffer {
          buffer : [i32; REQUEST_BUFFER_RANGE as usize],
-         insert_index : modulo::Mod,
-         extract_index : modulo::Mod,
+         insert_index : Mod,
+         extract_index : Mod,
          current_size : u32,
          barrier : bool,
      }
@@ -13,8 +13,8 @@ pub mod request_buffer {
      impl RequestBuffer {
          pub fn new() -> Self {
              Self {
-                 insert_index: modulo::new(REQUEST_BUFFER_RANGE),
-                 extract_index: modulo::new(REQUEST_BUFFER_RANGE),
+                 insert_index: Mod::new(REQUEST_BUFFER_RANGE),
+                 extract_index: Mod::new(REQUEST_BUFFER_RANGE),
                  current_size: 0,
                  barrier: false,
                  buffer: [0; REQUEST_BUFFER_RANGE as usize],

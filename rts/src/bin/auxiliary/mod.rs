@@ -4,7 +4,7 @@ pub mod auxiliary {
 
     use crate::auxiliary::modulo::modulo;
 
-    const FACTOR : u16 = 3;
+    const FACTOR : u32 = 3;
 
     #[derive(Debug)]
     pub struct Aux {
@@ -20,14 +20,14 @@ pub mod auxiliary {
             }
         }
 
-        pub fn due_activation(&mut self, param: u16) -> bool {
+        pub fn due_activation(&mut self, param: u32) -> bool {
             self.request_counter.increment();
             self.request_counter.to_int() == param
         }
 
         pub fn check_due(&mut self) -> bool {
             self.run_counter.increment();
-            let divisor: u16 = self.run_counter.to_int() / FACTOR;
+            let divisor: u32 = self.run_counter.to_int() / FACTOR;
             (divisor * FACTOR) == self.run_counter.to_int()
         }
     }

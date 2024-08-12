@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 pub mod production_workload {
 
     use num_traits::real::Real;
