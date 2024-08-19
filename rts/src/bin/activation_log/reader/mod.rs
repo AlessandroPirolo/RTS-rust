@@ -1,24 +1,22 @@
 pub mod act_log_reader {
 
-    use crate::activation_log::suspension_obj::suspension_obj::SuspensionObj;
-
     pub struct ActLogReader {
-        sem : SuspensionObj
+        sem : bool
     }
 
     impl ActLogReader {
         pub fn new() -> Self {
             Self {
-                sem: SuspensionObj::new()
+                sem: false
             }
         }
 
         pub fn signal(&mut self) -> () {
-            self.sem.send();
+            self.sem = true;
         }
 
-        pub fn wait(&mut self) -> () {
-            self.sem.receive();
+        pub fn wait(&self) -> bool {
+            self.sem
         }
     }
 }

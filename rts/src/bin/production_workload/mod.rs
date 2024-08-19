@@ -73,7 +73,7 @@ pub mod production_workload {
             *z = (xtemp + ytemp) / T2;
         }
 
-        pub fn small_whetstone(&mut self, kilo_whets: u32) -> () {
+        pub fn small_whetstone(&mut self, kilo_whets: i32) -> () {
             for _i in 1..kilo_whets {
                 self.clear_array();
                 self.ij = (self.ik - self.ij) * (self.il - self.ik);

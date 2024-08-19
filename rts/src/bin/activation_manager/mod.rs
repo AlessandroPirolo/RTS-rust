@@ -1,8 +1,9 @@
 pub mod activation_manager {
+    /* Here we setup time related things*/
     use rtic_monotonics::systick::prelude::*;
     systick_monotonic!(Mono, 1000);
 
-    type Time = <Mono as rtic_monotonics::Monotonic>::Instant;
+    pub type Time = <Mono as rtic_monotonics::Monotonic>::Instant;
     type MyDuration = <Mono as rtic_monotonics::Monotonic>::Duration;
     
     const RELATIVE_OFFSET : u32 = 100;

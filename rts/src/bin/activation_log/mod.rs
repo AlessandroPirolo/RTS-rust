@@ -1,7 +1,5 @@
 #![allow(dead_code)]
-
 pub mod reader;
-pub mod suspension_obj;
 
 pub mod activation_log {
     use rtic_monotonics::systick::prelude::*;

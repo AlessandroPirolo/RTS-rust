@@ -15,5 +15,9 @@ pub mod event_queue{
         pub fn wait(&mut self) -> () {
             self.barrier = false;
         }
+
+        pub fn barrier(&self) -> bool {
+            self.barrier
+        }
     }
 }
