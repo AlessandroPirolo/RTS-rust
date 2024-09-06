@@ -2,12 +2,9 @@
 pub mod reader;
 
 pub mod activation_log {
-    use rtic_monotonics::systick::prelude::*;
     use crate::auxiliary::modulo::modulo::Mod;
-
-    systick_monotonic!(Mono, 1000);
-
-    type Time = <Mono as rtic_monotonics::Monotonic>::Instant;
+    use crate::activation_manager::activation_manager::{Mono, Time};
+    use rtic_monotonics::Monotonic;
     
     pub struct ActivationLog {
         counter : Mod,

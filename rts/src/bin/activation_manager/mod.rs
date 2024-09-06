@@ -1,6 +1,9 @@
 pub mod activation_manager {
     /* Here we setup time related things*/
-    use rtic_monotonics::systick::prelude::*;
+    use rtic_monotonics::systick::prelude::systick_monotonic;
+    use rtic_monotonics::systick::prelude::Monotonic;
+    use rtic_monotonics::systick::prelude::ExtU32;
+
     systick_monotonic!(Mono, 1000);
 
     pub type Time = <Mono as rtic_monotonics::Monotonic>::Instant;

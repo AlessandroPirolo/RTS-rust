@@ -12,12 +12,13 @@ pub mod event_queue{
             self.barrier = true;
         }
 
-        pub fn wait(&mut self) -> () {
-            self.barrier = false;
-        }
-
-        pub fn barrier(&self) -> bool {
-            self.barrier
+        pub fn wait(&mut self) -> bool {
+            if self.barrier {
+                self.barrier = false;
+                true
+            } else {
+                false
+            }
         }
     }
 }

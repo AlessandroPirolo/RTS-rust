@@ -22,12 +22,12 @@ mod event_queue;
     dispatchers = [USART1, USART2, USART3, USART6]
 )]
 mod app {
+    use rtic_monotonics::Monotonic;
     use crate::parameters::parameters::*;
     use crate::parameters::parameters::activation_log_reader::LOAD;
     use crate::activation_manager::activation_manager::*;
     use crate::production_workload::production_workload::WorkloadProd;
     use crate::auxiliary::auxiliary::Aux;
-    use rtic_monotonics::systick::prelude::*;
     use crate::request_buffer::request_buffer::RequestBuffer;
     use crate::activation_log::reader::act_log_reader::ActLogReader;
     use crate::activation_log::activation_log::ActivationLog;
@@ -84,6 +84,8 @@ mod app {
         // 4) Enable gpio interrupt for button
         button.enable_interrupt(&mut dp.EXTI);
 
+        Mono::start(cx.core.SYST,16_000_000);
+            
         (
             Shared {
                 activation_manager: ActivationManager::new(),
@@ -115,6 +117,7 @@ mod app {
     #[task(priority = 7, shared = [&activation_manager, request_buffer, act_log_reader], local = [regular_prod_work, reg_aux])]
     async fn regular_producer(mut cx: regular_producer::Context) {
         let mut next_time : Time = cx.shared.activation_manager.activation_cyclic().await;
+        defmt::info!("Activation cyclic");
 
         loop {
             next_time += regular::PERIOD.millis();
@@ -148,6 +151,8 @@ mod app {
             }
             );
 
+            defmt::info!("sporadic workload extracted");
+
             cx.local.on_call_prod_work.small_whetstone(curr_workload);
         } 
     }
@@ -164,6 +169,7 @@ mod app {
                 }
             }
             
+            defmt::info!("activation log reader");
             cx.local.reader_prod_work.small_whetstone(LOAD);
             let _ = cx.shared.activation_log.lock(|shared| {shared.read();});
         }
@@ -175,12 +181,12 @@ mod app {
             
         loop {
             loop {
-                let ok : bool = cx.shared.event_queue.lock(|shared| {shared.barrier()});
+                let ok : bool = cx.shared.event_queue.lock(|shared| {shared.wait()});  //NO GOOD!!
                 if ok {
-                    cx.shared.event_queue.lock(|shared| {shared.wait()});
                     break;
                 }
             }
+            defmt::info!("external event server");
             cx.shared.activation_log.lock(
                 |shared| {
                     shared.write();
@@ -191,6 +197,7 @@ mod app {
 
     #[task(binds = EXTI15_10, local = [button], shared = [event_queue])]
     fn interrupt(mut cx : interrupt::Context) {
+        defmt::info!("Button pressed");
         cx.shared.event_queue.lock(|shared| {shared.signal()});
         // clear interrupt
         cx.local.button.clear_interrupt_pending_bit();
