@@ -1,6 +1,6 @@
 #![no_main]
 #![no_std]
-#![feature(type_alias_impl_trait)]
+//#![feature(type_alias_impl_trait)]
 
 use rts as _; // global logger + panicking-behavior + memory layout
 
@@ -22,31 +22,38 @@ mod event_queue;
     dispatchers = [USART1, USART2, USART3, USART6]
 )]
 mod app {
-    use rtic_monotonics::Monotonic;
     use crate::parameters::parameters::*;
     use crate::parameters::parameters::activation_log_reader::LOAD;
     use crate::activation_manager::activation_manager::*;
     use crate::production_workload::production_workload::WorkloadProd;
     use crate::auxiliary::auxiliary::Aux;
     use crate::request_buffer::request_buffer::RequestBuffer;
-    use crate::activation_log::reader::act_log_reader::ActLogReader;
     use crate::activation_log::activation_log::ActivationLog;
+    use crate::activation_log::reader::act_log_reader::ActLogReader;
     use crate::event_queue::event_queue::EventQueue;
+
+    use rtic_monotonics::Monotonic;
 
     use stm32f4xx_hal::{
         gpio::{Input, self, GpioExt, Edge, ExtiPin},
         prelude::*,
-        pac::Peripherals
+        pac::Peripherals,
     };
+    //use core::fmt::Write;
+
+    /*systick_monotonic!(Mono, 1000);
+    type Time = <Mono as rtic_monotonics::Monotonic>::Instant;
+    type Duration = <Mono as rtic_monotonics::Monotonic>::Duration;*/
 
     // Shared resources go here
     #[shared]
     struct Shared {
         activation_manager : ActivationManager,
         request_buffer : RequestBuffer,
-        act_log_reader : ActLogReader,
         activation_log : ActivationLog,
+        act_log_reader : ActLogReader,
         event_queue : EventQueue,
+        //offset : Time,
     }
 
     // Local resources go here
@@ -56,8 +63,10 @@ mod app {
         on_call_prod_work : WorkloadProd,
         reader_prod_work : WorkloadProd,
         reg_aux : Aux,
-        button : gpio::PC13<Input>
+        button : gpio::PA0<Input>
     }
+
+    
 
     #[init]
     fn init(cx: init::Context) -> (Shared, Local) {
@@ -70,49 +79,61 @@ mod app {
 
         let mut dp: Peripherals = cx.device;
 
-        let gpioc = dp.GPIOC.split();
+        //let gpioc = dp.GPIOC.split();
+        let gpioa = dp.GPIOA.split();
 
-        let mut button = gpioc.pc13;
+        let mut _button = gpioa.pa0;
 
         // Configure Button Pin for Interrupts
         // 1) Promote SYSCFG structure to HAL to be able to configure interrupts
         let mut syscfg = dp.SYSCFG.constrain();
-        // 2) Make button an interrupt source
-        button.make_interrupt_source(&mut syscfg);
-        // 3) Make button an interrupt source
-        button.trigger_on_edge(&mut dp.EXTI, Edge::Rising);
-        // 4) Enable gpio interrupt for button
-        button.enable_interrupt(&mut dp.EXTI);
 
-        Mono::start(cx.core.SYST,16_000_000);
+        // 2) Make button an interrupt source
+        _button.make_interrupt_source(&mut syscfg);
+        // 3) Make button an interrupt source
+        _button.trigger_on_edge(&mut dp.EXTI, Edge::Rising);
+        // 4) Enable gpio interrupt for button
+        _button.enable_interrupt(&mut dp.EXTI);
+
+        Mono::start(cx.core.SYST, 16_000_000);
+
+        /*let _reloff : Duration = 1000.millis();
+        let _offset : Time = Mono::now().checked_add_duration(_reloff).unwrap();*/
+
+        regular_producer::spawn().unwrap();
+        on_call_producer::spawn().unwrap();
+        activation_log_reader::spawn().unwrap();
+        external_event_server::spawn().unwrap();
             
         (
             Shared {
                 activation_manager: ActivationManager::new(),
                 request_buffer: RequestBuffer::new(),
-                act_log_reader: ActLogReader::new(),
                 activation_log: ActivationLog::new(),
-                event_queue: EventQueue::new()
+                act_log_reader: ActLogReader::new(),
+                event_queue: EventQueue::new(),
+                //offset: _offset,
             },
             Local {
                 regular_prod_work: WorkloadProd::new(),
                 on_call_prod_work: WorkloadProd::new(),
                 reader_prod_work: WorkloadProd::new(),
                 reg_aux: Aux::new(),
-                button: button 
+                button: _button
             },
         )
     }
 
     // Optional idle, can be removed if not needed.
-    #[idle]
+    /*#[idle]
     fn idle(_: idle::Context) -> ! {
         defmt::info!("idle");
 
         loop {
+            //defmt::info!("keep idle");
             continue;
         }
-    }
+    }*/
 
     #[task(priority = 7, shared = [&activation_manager, request_buffer, act_log_reader], local = [regular_prod_work, reg_aux])]
     async fn regular_producer(mut cx: regular_producer::Context) {
@@ -120,7 +141,8 @@ mod app {
         defmt::info!("Activation cyclic");
 
         loop {
-            next_time += regular::PERIOD.millis();
+            let per : MyDuration = regular::PERIOD.millis();
+            next_time = next_time.checked_add_duration(per).unwrap();
 
             cx.local.regular_prod_work.small_whetstone(regular::REGULAR_PRODUCER_WORKLOAD);
 
@@ -146,53 +168,57 @@ mod app {
         cx.shared.activation_manager.activation_sporadic().await;
 
         loop {
-            let curr_workload : i32 = cx.shared.request_buffer.lock(|shared| {
+            let (curr_workload, ok) : (i32, bool) = cx.shared.request_buffer.lock(|shared| {
                 shared.extract()
             }
             );
 
-            defmt::info!("sporadic workload extracted");
-
-            cx.local.on_call_prod_work.small_whetstone(curr_workload);
+            if ok {
+                // defmt::info!("sporadic workload extracted");
+                cx.local.on_call_prod_work.small_whetstone(curr_workload);
+            } else {
+                Mono::delay(100.millis()).await;
+            }
         } 
     }
 
     #[task(priority = 3, shared = [&activation_manager, act_log_reader, activation_log], local = [reader_prod_work])]
-    async fn activation_log_reader(mut cx: activation_log_reader::Context) {
+    async fn activation_log_reader(mut cx: activation_log_reader::Context) { 
         cx.shared.activation_manager.activation_sporadic().await;
 
         loop {
-            loop {
-                let ok : bool = cx.shared.act_log_reader.lock(|shared| {shared.wait()});
-                if ok {
-                    break;
-                }
+            let ok : bool = cx.shared.act_log_reader.lock(|shared| {shared.wait()});
+            if ok {
+                // defmt::info!("Check succeeded in act log read");
+                // defmt::info!("activation log reader");
+                cx.local.reader_prod_work.small_whetstone(LOAD);
+                let _ = cx.shared.activation_log.lock(|shared| {shared.read();});
+            } else {
+                Mono::delay(100.millis()).await;
             }
-            
-            defmt::info!("activation log reader");
-            cx.local.reader_prod_work.small_whetstone(LOAD);
-            let _ = cx.shared.activation_log.lock(|shared| {shared.read();});
         }
     }
 
-    #[task(priority = 11, shared = [&activation_manager, activation_log, event_queue])]
+    #[task(priority = 11, shared = [&activation_manager, event_queue, activation_log])]
     async fn external_event_server(mut cx : external_event_server::Context) {
         cx.shared.activation_manager.activation_sporadic().await;
+        defmt::info!("ext even serv");
             
         loop {
-            loop {
-                let ok : bool = cx.shared.event_queue.lock(|shared| {shared.wait()});  //NO GOOD!!
-                if ok {
-                    break;
-                }
+            let ok : bool = cx.shared.event_queue.lock(|shared| {shared.wait()});  
+            if ok {
+                // defmt::info!("Checked succeeded!");
+                // defmt::info!("external event server");
+                cx.shared.activation_log.lock(
+                    |shared| {
+                        shared.write();
+                    }
+                );
+            } else {
+                Mono::delay(100.millis()).await;
             }
-            defmt::info!("external event server");
-            cx.shared.activation_log.lock(
-                |shared| {
-                    shared.write();
-                }
-            );
         }
+        
     }
 
     #[task(binds = EXTI15_10, local = [button], shared = [event_queue])]
