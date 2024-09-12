@@ -33,12 +33,16 @@ pub mod request_buffer {
             }   
          }
 
-         pub fn extract(&mut self) -> i32 {
-             let result : i32 = self.buffer[self.extract_index.to_int() as usize];
-             self.extract_index.increment();
-             self.current_size -= 1;
-             self.barrier = self.current_size != 0;
-             result
+         pub fn extract(&mut self) -> (i32, bool) {
+             if self.barrier {
+                let result : i32 = self.buffer[self.extract_index.to_int() as usize];
+                self.extract_index.increment();
+                self.current_size -= 1;
+                self.barrier = self.current_size != 0;
+                (result, true)
+             } else {
+                 (0, false)
+             }
          }
      }
 
