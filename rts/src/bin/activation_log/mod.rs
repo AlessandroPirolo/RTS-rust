@@ -25,7 +25,7 @@ pub mod activation_log {
         }
 
         pub fn read(&self) -> (Mod, Time) {
-            (self.counter.clone(), self.time)
+            (self.counter.clone(), self.time.clone())
         }
 
     }

@@ -7,7 +7,7 @@ pub mod activation_manager {
     systick_monotonic!(Mono, 1000);
 
     pub type Time = <Mono as rtic_monotonics::Monotonic>::Instant;
-    type MyDuration = <Mono as rtic_monotonics::Monotonic>::Duration;
+    pub type MyDuration = <Mono as rtic_monotonics::Monotonic>::Duration;
     
     const RELATIVE_OFFSET : u32 = 100;
 
@@ -19,8 +19,9 @@ pub mod activation_manager {
         pub fn new() -> Self {
             let st : Time = Mono::now();
             let tst : MyDuration = RELATIVE_OFFSET.millis();
+            let _activation_time : Time = st.checked_add_duration(tst).unwrap();
             Self {
-               activation_time: st + tst,
+               activation_time: _activation_time,
             }
         }
 
