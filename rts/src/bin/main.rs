@@ -23,7 +23,7 @@ mod event_queue;
 )]
 mod app {
     use crate::parameters::parameters::*;
-    use crate::parameters::parameters::activation_log_reader::LOAD;
+    use crate::parameters::parameters::act_log_reader::LOAD;
     use crate::activation_manager::activation_manager::*;
     use crate::production_workload::production_workload::WorkloadProd;
     use crate::auxiliary::auxiliary::Aux;
@@ -82,7 +82,7 @@ mod app {
         //let gpioc = dp.GPIOC.split();
         let gpioa = dp.GPIOA.split();
 
-        let mut _button = gpioa.pa0;
+        let mut _button = gpioa.pa0.into_pull_down_input();
 
         // Configure Button Pin for Interrupts
         // 1) Promote SYSCFG structure to HAL to be able to configure interrupts
@@ -141,8 +141,9 @@ mod app {
         defmt::info!("Activation cyclic");
 
         loop {
-            let per : MyDuration = regular::PERIOD.millis();
-            next_time = next_time.checked_add_duration(per).unwrap();
+            next_time = next_time.checked_add_duration(regular::get_period()).unwrap();
+
+            let deadline : Time = get_deadline(regular::get_deadline());
 
             cx.local.regular_prod_work.small_whetstone(regular::REGULAR_PRODUCER_WORKLOAD);
 
@@ -159,6 +160,8 @@ mod app {
                 cx.shared.act_log_reader.lock(|shared|{shared.signal()});
             }
 
+            check_deadline(deadline);
+            
             Mono::delay_until(next_time).await;
          }
     }
@@ -168,17 +171,25 @@ mod app {
         cx.shared.activation_manager.activation_sporadic().await;
 
         loop {
-            let (curr_workload, ok) : (i32, bool) = cx.shared.request_buffer.lock(|shared| {
-                shared.extract()
-            }
-            );
+            let deadline : Time = get_deadline(on_call_prod::get_deadline());
+            let mut curr_workload : i32;
+            let mut ok : bool;
 
-            if ok {
-                // defmt::info!("sporadic workload extracted");
-                cx.local.on_call_prod_work.small_whetstone(curr_workload);
-            } else {
-                Mono::delay(100.millis()).await;
+            loop {
+                (curr_workload, ok) = cx.shared.request_buffer.lock(|shared| {
+                    shared.extract()
+                    }
+                );
+
+                if ok {
+                    break;
+                } else {
+                    Mono::delay(100.millis()).await;
+                }
             }
+            defmt::info!("sporadic workload extracted");
+            cx.local.on_call_prod_work.small_whetstone(curr_workload);
+            check_deadline(deadline);
         } 
     }
 
@@ -187,15 +198,21 @@ mod app {
         cx.shared.activation_manager.activation_sporadic().await;
 
         loop {
-            let ok : bool = cx.shared.act_log_reader.lock(|shared| {shared.wait()});
-            if ok {
-                // defmt::info!("Check succeeded in act log read");
-                // defmt::info!("activation log reader");
-                cx.local.reader_prod_work.small_whetstone(LOAD);
-                let _ = cx.shared.activation_log.lock(|shared| {shared.read();});
-            } else {
-                Mono::delay(100.millis()).await;
+            let deadline : Time = get_deadline(act_log_reader::get_deadline());
+            loop {
+                let ok : bool = cx.shared.act_log_reader.lock(|shared| {shared.wait()});
+                if ok {
+                    defmt::info!("Check succeeded in act log read");
+                    break;
+                } else {
+                    Mono::delay(100.millis()).await;
+                }
+
             }
+                // defmt::info!("activation log reader");
+            cx.local.reader_prod_work.small_whetstone(LOAD);
+            let _ = cx.shared.activation_log.lock(|shared| {shared.read();});
+            check_deadline(deadline);
         }
     }
 
@@ -205,25 +222,30 @@ mod app {
         defmt::info!("ext even serv");
             
         loop {
-            let ok : bool = cx.shared.event_queue.lock(|shared| {shared.wait()});  
-            if ok {
-                // defmt::info!("Checked succeeded!");
-                // defmt::info!("external event server");
-                cx.shared.activation_log.lock(
-                    |shared| {
-                        shared.write();
-                    }
-                );
-            } else {
-                Mono::delay(100.millis()).await;
+            let deadline : Time = get_deadline(ext_event_serv::get_deadline());
+            loop {
+                let ok : bool = cx.shared.event_queue.lock(|shared| {shared.wait()});  
+                if ok {
+                    defmt::info!("Checked succeeded!");
+                    break;
+                } else {
+                    Mono::delay(100.millis()).await;
+                }
             }
+            // defmt::info!("external event server");
+            cx.shared.activation_log.lock(
+                |shared| {
+                    shared.write();
+                }
+            );
+            check_deadline(deadline); 
         }
         
     }
 
-    #[task(binds = EXTI15_10, local = [button], shared = [event_queue])]
+    #[task(binds = EXTI0, local = [button], shared = [event_queue])]
     fn interrupt(mut cx : interrupt::Context) {
-        defmt::info!("Button pressed");
+        defmt::info!("Button pressed!!!!!!!!!!");
         cx.shared.event_queue.lock(|shared| {shared.signal()});
         // clear interrupt
         cx.local.button.clear_interrupt_pending_bit();

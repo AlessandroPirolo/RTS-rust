@@ -3,16 +3,30 @@ pub mod activation_manager {
     use rtic_monotonics::systick::prelude::systick_monotonic;
     use rtic_monotonics::systick::prelude::Monotonic;
     use rtic_monotonics::systick::prelude::ExtU32;
+    use core::cmp::Ordering;
 
     systick_monotonic!(Mono, 1000);
 
     pub type Time = <Mono as rtic_monotonics::Monotonic>::Instant;
     pub type MyDuration = <Mono as rtic_monotonics::Monotonic>::Duration;
     
-    const RELATIVE_OFFSET : u32 = 100;
+    const RELATIVE_OFFSET : u32 = 100; 
 
     pub struct ActivationManager {
         activation_time : Time,
+    }
+
+    pub fn get_deadline(deadline : MyDuration) -> Time {
+        let start : Time = Mono::now();
+        start.checked_add_duration(deadline).unwrap()
+    }
+
+    pub fn check_deadline(deadline : Time) -> () {
+        let finish : Time = Mono::now();
+        let miss = finish.cmp(&deadline);
+        if miss == Ordering::Greater {
+            defmt::info!("Deadline misses!");
+        }
     }
 
     impl ActivationManager {
