@@ -19,7 +19,7 @@ mod event_queue;
     peripherals = true,
     // TODO: Replace the `SWI0_EGU0` with free interrupt vectors if software tasks are used
     // You can usually find the names of the interrupt vectors in the nrf52840_hal::pac::interrupt enum.
-    dispatchers = [USART1, USART2, USART3, USART6]
+    dispatchers = [USART1, USART2, USART3, USART6, UART5]
 )]
 mod app {
     use crate::parameters::parameters::*;
@@ -37,7 +37,7 @@ mod app {
     use stm32f4xx_hal::{
         gpio::{Input, self, GpioExt, Edge, ExtiPin},
         prelude::*,
-        pac::Peripherals,
+        pac::{Peripherals,EXTI},
     };
     //use core::fmt::Write;
 
@@ -63,7 +63,8 @@ mod app {
         on_call_prod_work : WorkloadProd,
         reader_prod_work : WorkloadProd,
         reg_aux : Aux,
-        button : gpio::PA0<Input>
+        button : gpio::PA0<Input>,
+        exti : EXTI 
     }
 
     
@@ -77,7 +78,7 @@ mod app {
         // let token = rtic_monotonics::create_systick_token!();
         // rtic_monotonics::systick::Systick::new(cx.core.SYST, sysclk, token);
 
-        let mut dp: Peripherals = cx.device;
+        let dp: Peripherals = cx.device;
 
         //let gpioc = dp.GPIOC.split();
         let gpioa = dp.GPIOA.split();
@@ -87,13 +88,13 @@ mod app {
         // Configure Button Pin for Interrupts
         // 1) Promote SYSCFG structure to HAL to be able to configure interrupts
         let mut syscfg = dp.SYSCFG.constrain();
-
+        let mut _exti = dp.EXTI;
         // 2) Make button an interrupt source
         _button.make_interrupt_source(&mut syscfg);
         // 3) Make button an interrupt source
-        _button.trigger_on_edge(&mut dp.EXTI, Edge::Rising);
+        _button.trigger_on_edge(&mut _exti, Edge::Rising);
         // 4) Enable gpio interrupt for button
-        _button.enable_interrupt(&mut dp.EXTI);
+        _button.enable_interrupt(&mut _exti);
 
         Mono::start(cx.core.SYST, 16_000_000);
 
@@ -104,6 +105,7 @@ mod app {
         on_call_producer::spawn().unwrap();
         activation_log_reader::spawn().unwrap();
         external_event_server::spawn().unwrap();
+        force_interrupt::spawn().unwrap();
             
         (
             Shared {
@@ -119,7 +121,8 @@ mod app {
                 on_call_prod_work: WorkloadProd::new(),
                 reader_prod_work: WorkloadProd::new(),
                 reg_aux: Aux::new(),
-                button: _button
+                button: _button,
+                exti: _exti,
             },
         )
     }
@@ -180,14 +183,14 @@ mod app {
                     shared.extract()
                     }
                 );
-
                 if ok {
                     break;
                 } else {
-                    Mono::delay(100.millis()).await;
+                    let delay : Time = delay_time();
+                    Mono::delay_until(delay).await;
                 }
             }
-            defmt::info!("sporadic workload extracted");
+            //defmt::info!("sporadic workload extracted");
             cx.local.on_call_prod_work.small_whetstone(curr_workload);
             check_deadline(deadline);
         } 
@@ -202,10 +205,11 @@ mod app {
             loop {
                 let ok : bool = cx.shared.act_log_reader.lock(|shared| {shared.wait()});
                 if ok {
-                    defmt::info!("Check succeeded in act log read");
+                    //defmt::info!("Check succeeded in act log read");
                     break;
                 } else {
-                    Mono::delay(100.millis()).await;
+                    let delay : Time = delay_time();
+                    Mono::delay_until(delay).await;
                 }
 
             }
@@ -229,7 +233,8 @@ mod app {
                     defmt::info!("Checked succeeded!");
                     break;
                 } else {
-                    Mono::delay(100.millis()).await;
+                    let delay : Time = delay_time();
+                    Mono::delay_until(delay).await;
                 }
             }
             // defmt::info!("external event server");
@@ -243,12 +248,30 @@ mod app {
         
     }
 
-    #[task(binds = EXTI0, local = [button], shared = [event_queue])]
+    #[task(binds = EXTI0, shared = [event_queue], local = [button])]
     fn interrupt(mut cx : interrupt::Context) {
         defmt::info!("Button pressed!!!!!!!!!!");
         cx.shared.event_queue.lock(|shared| {shared.signal()});
         // clear interrupt
         cx.local.button.clear_interrupt_pending_bit();
+    }
+
+    #[task(priority = 13, shared = [&activation_manager], local = [exti])]
+    async fn force_interrupt(cx : force_interrupt::Context) {
+        let mut next_time : Time = cx.shared.activation_manager.activation_cyclic().await;
+
+        loop {
+            defmt::info!("Force interrupt");
+            next_time = next_time.checked_add_duration(force_inter::get_period()).unwrap();
+
+            //let deadline : Time = get_deadline(regular::get_deadline());
+            
+            cx.local.exti.swier.write(|w| w.swier0().set_bit());
+
+            //check_deadline(deadline);
+            
+            Mono::delay_until(next_time).await;
+         }
     }
 
 

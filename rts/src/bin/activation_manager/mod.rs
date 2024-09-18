@@ -25,8 +25,13 @@ pub mod activation_manager {
         let finish : Time = Mono::now();
         let miss = finish.cmp(&deadline);
         if miss == Ordering::Greater {
-            defmt::info!("Deadline misses!");
+            //defmt::info!("Deadline misses!");
         }
+    }
+
+    pub fn delay_time() -> Time {
+        let duration : MyDuration = 100.millis();
+        Mono::now().checked_add_duration(duration).unwrap()
     }
 
     impl ActivationManager {

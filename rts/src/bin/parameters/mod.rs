@@ -59,4 +59,20 @@ pub mod parameters {
             DEADLINE.millis()
         }
     }
+
+    pub mod force_inter {
+        use crate::activation_manager::activation_manager::MyDuration;
+        use rtic_monotonics::systick::prelude::ExtU32;
+        
+        pub const DEADLINE: u32 = 100;
+        pub const PERIOD: u32 = 5000;
+
+        pub fn get_deadline() -> MyDuration {
+            DEADLINE.millis()
+        }
+
+        pub fn get_period() -> MyDuration {
+            PERIOD.millis()
+        }
+    }
 }
