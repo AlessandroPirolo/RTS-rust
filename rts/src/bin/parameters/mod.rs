@@ -6,7 +6,7 @@ pub mod parameters {
         use rtic_monotonics::systick::prelude::ExtU32;
         
         const PERIOD: u32 = 1000;
-        const DEADLINE: u32 = 500;
+        const DEADLINE: u32 = 800; //500
 
         pub const REGULAR_PRODUCER_WORKLOAD: i32 = 756;
         pub const ON_CALL_PRODUCER_WORKLOAD: i32 = 278;
@@ -27,10 +27,15 @@ pub mod parameters {
         use rtic_monotonics::systick::prelude::ExtU32;
         
         pub const LOAD: i32 = 139;
-        pub const DEADLINE: u32 = 1000;
+        const INTER_ARRIVAL_TIME: u32 = 3000;
+        const DEADLINE: u32 = 1000;
 
         pub fn get_deadline() -> MyDuration {
             DEADLINE.millis()
+        }
+
+        pub fn get_inter_arrival_time() -> MyDuration {
+            INTER_ARRIVAL_TIME.millis()
         }
     }
 
@@ -43,9 +48,14 @@ pub mod parameters {
         use rtic_monotonics::systick::prelude::ExtU32;
 
         pub const DEADLINE: u32 = 800;
+        const INTER_ARRIVAL_TIME: u32 = 3000;
 
         pub fn get_deadline() -> MyDuration {
             DEADLINE.millis()
+        }
+        
+        pub fn get_inter_arrival_time() -> MyDuration {
+            INTER_ARRIVAL_TIME.millis()
         }
     }
 
@@ -54,9 +64,14 @@ pub mod parameters {
         use rtic_monotonics::systick::prelude::ExtU32;
         
         pub const DEADLINE: u32 = 100;
+        const INTER_ARRIVAL_TIME: u32 = 5000;
 
         pub fn get_deadline() -> MyDuration {
             DEADLINE.millis()
+        }
+        
+        pub fn get_inter_arrival_time() -> MyDuration {
+            INTER_ARRIVAL_TIME.millis()
         }
     }
 

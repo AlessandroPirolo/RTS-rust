@@ -39,11 +39,6 @@ mod app {
         prelude::*,
         pac::{Peripherals,EXTI},
     };
-    //use core::fmt::Write;
-
-    /*systick_monotonic!(Mono, 1000);
-    type Time = <Mono as rtic_monotonics::Monotonic>::Instant;
-    type Duration = <Mono as rtic_monotonics::Monotonic>::Duration;*/
 
     // Shared resources go here
     #[shared]
@@ -73,11 +68,6 @@ mod app {
     fn init(cx: init::Context) -> (Shared, Local) {
         defmt::info!("init");
 
-        // TODO setup monotonic if used
-        // let sysclk = { /* clock setup + returning sysclk as an u32 */ };
-        // let token = rtic_monotonics::create_systick_token!();
-        // rtic_monotonics::systick::Systick::new(cx.core.SYST, sysclk, token);
-
         let dp: Peripherals = cx.device;
 
         //let gpioc = dp.GPIOC.split();
@@ -98,8 +88,6 @@ mod app {
 
         Mono::start(cx.core.SYST, 16_000_000);
 
-        /*let _reloff : Duration = 1000.millis();
-        let _offset : Time = Mono::now().checked_add_duration(_reloff).unwrap();*/
 
         regular_producer::spawn().unwrap();
         on_call_producer::spawn().unwrap();
@@ -163,7 +151,7 @@ mod app {
                 cx.shared.act_log_reader.lock(|shared|{shared.signal()});
             }
 
-            check_deadline(deadline);
+            check_deadline(deadline, "RP");
             
             Mono::delay_until(next_time).await;
          }
@@ -171,10 +159,11 @@ mod app {
 
     #[task(priority = 5, shared = [&activation_manager, request_buffer], local = [on_call_prod_work])]
     async fn on_call_producer(mut cx: on_call_producer::Context) {
-        cx.shared.activation_manager.activation_sporadic().await;
+        let mut next_time : Time = cx.shared.activation_manager.activation_sporadic().await;
 
         loop {
-            let deadline : Time = get_deadline(on_call_prod::get_deadline());
+            next_time = next_time.checked_add_duration(on_call_prod::get_inter_arrival_time()).unwrap();
+
             let mut curr_workload : i32;
             let mut ok : bool;
 
@@ -190,43 +179,42 @@ mod app {
                     Mono::delay_until(delay).await;
                 }
             }
-            //defmt::info!("sporadic workload extracted");
+            let deadline : Time = get_deadline(on_call_prod::get_deadline());
             cx.local.on_call_prod_work.small_whetstone(curr_workload);
-            check_deadline(deadline);
+            check_deadline(deadline, "OCP");
+            Mono::delay_until(next_time).await;
         } 
     }
 
     #[task(priority = 3, shared = [&activation_manager, act_log_reader, activation_log], local = [reader_prod_work])]
     async fn activation_log_reader(mut cx: activation_log_reader::Context) { 
-        cx.shared.activation_manager.activation_sporadic().await;
+        let mut next_time : Time = cx.shared.activation_manager.activation_sporadic().await;
 
         loop {
-            let deadline : Time = get_deadline(act_log_reader::get_deadline());
+            next_time = next_time.checked_add_duration(act_log_reader::get_inter_arrival_time()).unwrap();
+
             loop {
                 let ok : bool = cx.shared.act_log_reader.lock(|shared| {shared.wait()});
                 if ok {
                     //defmt::info!("Check succeeded in act log read");
                     break;
-                } else {
-                    let delay : Time = delay_time();
-                    Mono::delay_until(delay).await;
                 }
-
             }
-                // defmt::info!("activation log reader");
+            let deadline : Time = get_deadline(act_log_reader::get_deadline());
             cx.local.reader_prod_work.small_whetstone(LOAD);
             let _ = cx.shared.activation_log.lock(|shared| {shared.read();});
-            check_deadline(deadline);
+            check_deadline(deadline, "ALR");
+            Mono::delay_until(next_time).await;
         }
     }
 
     #[task(priority = 11, shared = [&activation_manager, event_queue, activation_log])]
     async fn external_event_server(mut cx : external_event_server::Context) {
-        cx.shared.activation_manager.activation_sporadic().await;
-        defmt::info!("ext even serv");
+        let mut next_time : Time = cx.shared.activation_manager.activation_sporadic().await;
             
         loop {
-            let deadline : Time = get_deadline(ext_event_serv::get_deadline());
+            next_time = next_time.checked_add_duration(ext_event_serv::get_inter_arrival_time()).unwrap();
+
             loop {
                 let ok : bool = cx.shared.event_queue.lock(|shared| {shared.wait()});  
                 if ok {
@@ -237,13 +225,14 @@ mod app {
                     Mono::delay_until(delay).await;
                 }
             }
-            // defmt::info!("external event server");
+            let deadline : Time = get_deadline(ext_event_serv::get_deadline());
             cx.shared.activation_log.lock(
                 |shared| {
                     shared.write();
                 }
             );
-            check_deadline(deadline); 
+            check_deadline(deadline, "EES"); 
+            Mono::delay_until(next_time).await;
         }
         
     }
@@ -261,9 +250,9 @@ mod app {
         let mut next_time : Time = cx.shared.activation_manager.activation_cyclic().await;
 
         loop {
-            defmt::info!("Force interrupt");
+            //defmt::info!("Force interrupt");
             next_time = next_time.checked_add_duration(force_inter::get_period()).unwrap();
-
+            //cx.local.exti.swier.reset();
             //let deadline : Time = get_deadline(regular::get_deadline());
             
             cx.local.exti.swier.write(|w| w.swier0().set_bit());

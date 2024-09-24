@@ -21,11 +21,11 @@ pub mod activation_manager {
         start.checked_add_duration(deadline).unwrap()
     }
 
-    pub fn check_deadline(deadline : Time) -> () {
+    pub fn check_deadline(deadline : Time, who : &str) -> () {
         let finish : Time = Mono::now();
         let miss = finish.cmp(&deadline);
         if miss == Ordering::Greater {
-            //defmt::info!("Deadline misses!");
+            defmt::info!("Deadline of {:?} misses!", who);
         }
     }
 
@@ -44,8 +44,9 @@ pub mod activation_manager {
             }
         }
 
-        pub async fn activation_sporadic(&self) -> () {
+        pub async fn activation_sporadic(&self) -> Time {
             Mono::delay_until(self.activation_time).await;
+            self.activation_time
         }
 
         pub async fn activation_cyclic(&self) -> Time {
