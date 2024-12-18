@@ -1,22 +1,28 @@
 pub mod act_log_reader {
+    use rtic_sync::arbiter::Arbiter;
 
     pub struct ActLogReader {
-        sem : bool
+        sem: Arbiter<bool>,
     }
 
     impl ActLogReader {
         pub fn new() -> Self {
             Self {
-                sem: false
+                sem: Arbiter::new(false),
             }
         }
 
-        pub fn signal(&mut self) -> () {
-            self.sem = true;
+        pub async fn signal(&self) {
+            *self.sem.access().await = true;
         }
 
-        pub fn wait(&self) -> bool {
-            self.sem
+        pub async fn wait(&self) -> bool {
+            if *self.sem.access().await == true {
+                *self.sem.access().await = false;
+                true
+            } else {
+                false
+            }
         }
     }
 }

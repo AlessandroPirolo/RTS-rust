@@ -11,7 +11,7 @@ pub mod auxiliary {
         request_counter: modulo::Mod,
         run_counter: modulo::Mod,
     }
-
+    
     impl Aux {
         pub fn new() -> Self {
             Self {
@@ -32,3 +32,5 @@ pub mod auxiliary {
         }
     }
 }
+
+

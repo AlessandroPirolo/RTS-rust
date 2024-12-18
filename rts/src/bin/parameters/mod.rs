@@ -6,12 +6,12 @@ pub mod parameters {
         use rtic_monotonics::systick::prelude::ExtU32;
         
         const PERIOD: u32 = 1000;
-        const DEADLINE: u32 = 800; //500
+        const DEADLINE: u32 = 500; //720 minimum
 
         pub const REGULAR_PRODUCER_WORKLOAD: i32 = 756;
         pub const ON_CALL_PRODUCER_WORKLOAD: i32 = 278;
 
-    pub const ACTIVATION_CONDITION: u32 = 2;
+        pub const ACTIVATION_CONDITION: u32 = 2;
 
         pub fn get_period() -> MyDuration {
             PERIOD.millis()
@@ -28,7 +28,7 @@ pub mod parameters {
         
         pub const LOAD: i32 = 139;
         const INTER_ARRIVAL_TIME: u32 = 3000;
-        const DEADLINE: u32 = 1000;
+        const DEADLINE: u32 = 1000; //200 minimum
 
         pub fn get_deadline() -> MyDuration {
             DEADLINE.millis()
@@ -47,7 +47,7 @@ pub mod parameters {
         use crate::activation_manager::activation_manager::MyDuration;
         use rtic_monotonics::systick::prelude::ExtU32;
 
-        pub const DEADLINE: u32 = 800;
+        pub const DEADLINE: u32 = 800; //270 minimum
         const INTER_ARRIVAL_TIME: u32 = 3000;
 
         pub fn get_deadline() -> MyDuration {
@@ -79,12 +79,8 @@ pub mod parameters {
         use crate::activation_manager::activation_manager::MyDuration;
         use rtic_monotonics::systick::prelude::ExtU32;
         
-        pub const DEADLINE: u32 = 100;
         pub const PERIOD: u32 = 5000;
 
-        pub fn get_deadline() -> MyDuration {
-            DEADLINE.millis()
-        }
 
         pub fn get_period() -> MyDuration {
             PERIOD.millis()
