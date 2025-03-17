@@ -10,11 +10,12 @@ mod activation_manager;
 mod request_buffer;
 mod activation_log; 
 mod event_queue;
+mod timing_event;
 
 #[rtic::app(
     device = stm32f4xx_hal::pac,
     peripherals = true,
-    dispatchers = [USART1, USART2, USART3, USART6, UART5]
+    dispatchers = [USART1, USART2, USART3, USART6, UART5, UART4]
 )]
 mod app {
     use crate::parameters::parameters::*;
@@ -24,11 +25,12 @@ mod app {
     use crate::auxiliary::auxiliary::Aux;
     use crate::request_buffer::request_buffer::RequestBuffer;
     use crate::activation_log::activation_log::ActivationLog;
-    use crate::activation_log::reader::act_log_reader::ActLogReader;
     use crate::event_queue::event_queue::EventQueue;
-
+    use crate::timing_event::timing_event::TimingEvent;
+    
     use rtic_monotonics::Monotonic;
-    use rtic_sync::{channel::*, make_channel};
+    use embassy_sync::channel::*;
+    use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
     use stm32f4xx_hal::{
         gpio::{Input, self, GpioExt, Edge, ExtiPin},
@@ -36,14 +38,18 @@ mod app {
         pac::{Peripherals,EXTI},
     };
 
+
     // Shared resources go here
     #[shared]
     struct Shared {
         activation_manager : ActivationManager,
         request_buffer : RequestBuffer,
         activation_log : ActivationLog,
-        act_log_reader : ActLogReader,
         event_queue : EventQueue,
+        rp_deadline_event: TimingEvent,
+        ocp_deadline_event: TimingEvent,
+        alr_deadline_event: TimingEvent,
+        ees_deadline_event: TimingEvent,
     }
 
     // Local resources go here
@@ -55,16 +61,12 @@ mod app {
         reg_aux : Aux,
         button : gpio::PA0<Input>,
         exti : EXTI,
-        deposit_signal: Sender<'static, bool, 1>,
-        reader_signal: Sender<'static, bool, 1>,
-        extract_wait: Receiver<'static, bool, 1>,
-        reader_wait: Receiver<'static, bool, 1>,
-    }
-
-    #[derive(Debug)]
-    enum DeadlineConstant {
-        START,
-        END,
+        deposit_signal: Sender<'static, CriticalSectionRawMutex, u32, 1>,
+        reader_signal: Sender<'static, CriticalSectionRawMutex, u32, 1>,
+        queue_signal: Sender<'static, CriticalSectionRawMutex, u32, 1>,
+        extract_wait: Receiver<'static, CriticalSectionRawMutex, u32, 1>,
+        reader_wait: Receiver<'static, CriticalSectionRawMutex, u32, 1>,
+        queue_wait: Receiver<'static, CriticalSectionRawMutex, u32, 1>,
     }
 
     #[init]
@@ -90,9 +92,9 @@ mod app {
 
         Mono::start(cx.core.SYST, 16_000_000);
 
-        /* Following names are acronyms, eg: rps stands for regular producer sender */
-        let (deposit_signal, extract_wait) = make_channel!(bool, 1);
-        let (reader_signal, reader_wait) = make_channel!(bool, 1);
+        static BUFFER_CHANNEL: Channel<CriticalSectionRawMutex, u32, 1> = Channel::new();
+        static READER_CHANNEL: Channel<CriticalSectionRawMutex, u32, 1> = Channel::new();
+        static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, u32, 1> = Channel::new();
 
         regular_producer::spawn().unwrap();
         on_call_producer::spawn().unwrap();
@@ -105,9 +107,11 @@ mod app {
                 activation_manager: ActivationManager::new(),
                 request_buffer: RequestBuffer::new(),
                 activation_log: ActivationLog::new(),
-                act_log_reader: ActLogReader::new(),
                 event_queue: EventQueue::new(),
-                //offset: _offset,
+                rp_deadline_event: TimingEvent::new(),
+                ocp_deadline_event: TimingEvent::new(),
+                alr_deadline_event: TimingEvent::new(),
+                ees_deadline_event: TimingEvent::new(),
             },
             Local {
                 regular_prod_work: WorkloadProd::new(),
@@ -116,71 +120,106 @@ mod app {
                 reg_aux: Aux::new(),
                 button: _button,
                 exti: _exti,
-                deposit_signal: deposit_signal,
-                extract_wait: extract_wait,
-                reader_signal: reader_signal,
-                reader_wait: reader_wait,
+                deposit_signal: BUFFER_CHANNEL.sender(),
+                extract_wait: BUFFER_CHANNEL.receiver(),
+                reader_signal: READER_CHANNEL.sender(),
+                reader_wait: READER_CHANNEL.receiver(),
+                queue_signal: EVENT_CHANNEL.sender(),
+                queue_wait: EVENT_CHANNEL.receiver(),
             },
         )
     }
 
-    async fn deadline_handler_job(start: Time, deadline: MyDuration, mut recv: Receiver<'static, DeadlineConstant, 1>, who: &str) {
-        let finish: Time = start.checked_add_duration(deadline).unwrap();
+    async fn deadline_handler_job(
+        start: Time, 
+        deadline: MyDuration, 
+        event: &TimingEvent, 
+        who: &str
+        ) {
+        let finish: Time = 
+            start.checked_add_duration(deadline).unwrap();
+        event.set().await;
         Mono::delay_until(finish).await;
-        match recv.try_recv() { 
-            Ok(_) => {}
-            Err(_) => defmt::info!("{:?} Deadline missed!", who),
+        match event.check().await { 
+            true => {},
+            false => defmt::info!("{:?} Deadline missed!", who),
         }
     }
 
-    #[task(priority = 16)]
+    #[task(priority = 16, shared = [&rp_deadline_event])]
     async fn deadline_handler_rp(
-        _cx: deadline_handler_rp::Context, 
-        start: Time, 
-        deadline: MyDuration, 
-        recv: Receiver<'static, DeadlineConstant, 1>
-        ) {
-        deadline_handler_job(start, deadline, recv, "RP").await;
+        cx: deadline_handler_rp::Context, 
+    ) {
+        /*loop {
+            let _ = cx.local.rp_deadline_recv.receive().await;
+            let start: Time = Mono::now();
+            defmt::info!("here1");
+            let finish: Time = 
+                start.checked_add_duration(regular::get_deadline()).unwrap();
+            defmt::info!("here2");
+            cx.shared.rp_deadline_event.set().await;
+            defmt::info!("here3");
+            Mono::delay_until(finish).await;
+            defmt::info!("here4");
+            match cx.shared.rp_deadline_event.check().await { 
+                true => defmt::info!("Received RP"),
+                false => defmt::info!("RP Deadline missed!"),
+            }
+            defmt::info!("here5");
+
+        }*/
+        deadline_handler_job(
+            Mono::now(), 
+            regular::get_deadline(), 
+            cx.shared.rp_deadline_event, 
+            "RP").await;
     }
     
-    #[task(priority = 16)]
+    #[task(priority = 16, shared = [&ocp_deadline_event])]
     async fn deadline_handler_ocp(
-        _cx: deadline_handler_ocp::Context, 
+        cx: deadline_handler_ocp::Context, 
         start: Time, 
-        deadline: MyDuration, 
-        recv: Receiver<'static, DeadlineConstant, 1>
-        ) {
-        deadline_handler_job(start, deadline, recv, "OCP").await;
+    ) {
+        deadline_handler_job(
+            start, 
+            on_call_prod::get_deadline(), 
+            cx.shared.ocp_deadline_event, 
+            "OCP").await;
     }
     
-    #[task(priority = 16)]
+    #[task(priority = 16, shared = [&alr_deadline_event])]
     async fn deadline_handler_alr(
-        _cx: deadline_handler_alr::Context, 
+        cx: deadline_handler_alr::Context, 
         start: Time, 
-        deadline: MyDuration, 
-        recv: Receiver<'static, DeadlineConstant, 1>
-        ) {
-        deadline_handler_job(start, deadline, recv, "ALR").await;
+    ) {
+        deadline_handler_job(
+            start, 
+            act_log_reader::get_deadline(), 
+            cx.shared.alr_deadline_event, 
+            "ALR").await;
     }
 
-    #[task(priority = 16)]
+    #[task(priority = 16, shared = [&ees_deadline_event])]
     async fn deadline_handler_ees(
-        _cx: deadline_handler_ees::Context, 
+        cx: deadline_handler_ees::Context, 
         start: Time, 
-        deadline: MyDuration, 
-        recv: Receiver<'static, DeadlineConstant, 1>
-        ) {
-        deadline_handler_job(start, deadline, recv, "EES").await;
+    ) {
+        deadline_handler_job(
+            start, 
+            ext_event_serv::get_deadline(), 
+            cx.shared.ees_deadline_event, 
+            "EES").await;
     }
 
-    #[task(priority = 7, shared = [&activation_manager, request_buffer, &act_log_reader], local = [regular_prod_work, reg_aux, deposit_signal, reader_signal])]
+    #[task(priority = 7, 
+        shared = [&activation_manager, request_buffer, &rp_deadline_event], 
+        local = [regular_prod_work, reg_aux, deposit_signal, reader_signal])]
     async fn regular_producer(mut cx: regular_producer::Context) {
         let mut next_time : Time = cx.shared.activation_manager.activation_cyclic().await;
         defmt::info!("Activation cyclic");
 
         loop { 
-            let (mut s, r) = make_channel!(DeadlineConstant, 1);
-            deadline_handler_rp::spawn(Mono::now(), regular::get_deadline(), r).unwrap();
+            deadline_handler_rp::spawn().unwrap();
 
             next_time = next_time.checked_add_duration(regular::get_period()).unwrap();
             
@@ -188,7 +227,7 @@ mod app {
 
             if cx.local.reg_aux.due_activation(regular::ACTIVATION_CONDITION) {
                 let res : bool = cx.shared.request_buffer.lock(|shared| {
-                    shared.deposit(regular::ON_CALL_PRODUCER_WORKLOAD)
+                    shared.deposit(regular::ON_CALL_PRODUCER_WORKLOAD, cx.local.deposit_signal.clone())
                 });
                 if !res {
                     defmt::info!("Failed sporadic activation");
@@ -196,92 +235,71 @@ mod app {
             }
 
             if cx.local.reg_aux.check_due() {
-                let _ = cx.local.reader_signal.try_send(true);
+                let _ = cx.local.reader_signal.try_send(1);
             }
-            
-            s.send(DeadlineConstant::END).await.unwrap();
-            
+
+            cx.shared.rp_deadline_event.cancel().await; 
             Mono::delay_until(next_time).await;
          }
     }
 
-    #[task(priority = 5, shared = [&activation_manager, request_buffer], local = [on_call_prod_work, extract_wait])]
+    #[task(priority = 5, shared = [&activation_manager, request_buffer, &ocp_deadline_event], local = [on_call_prod_work, extract_wait])]
     async fn on_call_producer(mut cx: on_call_producer::Context) {
         cx.shared.activation_manager.activation_sporadic().await;
 
         loop {
-            let mut curr_workload : i32;
-            let mut ok : bool;
-            let (mut s, r) = make_channel!(DeadlineConstant, 1);
-
-            loop {
-                (curr_workload, ok) = cx.shared.request_buffer.lock(|shared| {
-                    shared.extract()
-                    }
-                );
-                if ok {
-                    break;
-                } else {
-                    let delay : Time = delay_time();
-                    Mono::delay_until(delay).await;
+            let _ = cx.local.extract_wait.receive().await;
+            let curr_workload : i32 = cx.shared.request_buffer.lock(|shared| {
+                shared.extract()
                 }
-            }
+            );
 
-            deadline_handler_ocp::spawn(Mono::now(), on_call_prod::get_deadline(), r).unwrap();
+            deadline_handler_ocp::spawn(Mono::now()).unwrap();
             cx.local.on_call_prod_work.small_whetstone(curr_workload);
-            s.send(DeadlineConstant::END).await.unwrap(); 
+             
+            cx.shared.ocp_deadline_event.cancel().await; 
         } 
     }
 
-    #[task(priority = 3, shared = [&activation_manager, &act_log_reader, activation_log], local = [reader_prod_work, reader_wait])]
+    #[task(priority = 3, shared = [&activation_manager, activation_log, &alr_deadline_event], local = [reader_prod_work, reader_wait])]
     async fn activation_log_reader(mut cx: activation_log_reader::Context) {
         cx.shared.activation_manager.activation_sporadic().await;
 
         loop {
-            let (mut s, r) = make_channel!(DeadlineConstant, 1);
+            let _ = cx.local.reader_wait.receive().await;
 
-            let _ = cx.local.reader_wait.recv().await;
-
-            deadline_handler_alr::spawn(Mono::now(), on_call_prod::get_deadline(), r).unwrap();
+            deadline_handler_alr::spawn(Mono::now()).unwrap();
             cx.local.reader_prod_work.small_whetstone(LOAD);
             let _ = cx.shared.activation_log.lock(|shared| {shared.read();});            
-            s.send(DeadlineConstant::END).await.unwrap();
+
+            cx.shared.alr_deadline_event.cancel().await; 
         }
     }
 
-    #[task(priority = 11, shared = [&activation_manager, event_queue, activation_log])]
+    #[task(priority = 11, shared = [&activation_manager, event_queue, activation_log, &ees_deadline_event], local = [queue_wait])]
     async fn external_event_server(mut cx : external_event_server::Context) {
         cx.shared.activation_manager.activation_sporadic().await;
             
         loop {
-            let (mut s, r) = make_channel!(DeadlineConstant, 1);
-            
-            loop {
-                let ok : bool = cx.shared.event_queue.lock(|shared| {shared.wait()});  
-                if ok {
-                    defmt::info!("Checked succeeded!");
-                    break;
-                } else {
-                    let delay : Time = delay_time();
-                    Mono::delay_until(delay).await;
-                }
-            } 
+            let _ = cx.local.queue_wait.receive().await;
+            cx.shared.event_queue.lock(|shared| {shared.wait()});   
 
-            deadline_handler_ees::spawn(Mono::now(), on_call_prod::get_deadline(), r).unwrap();
+            deadline_handler_ees::spawn(Mono::now()).unwrap();
             cx.shared.activation_log.lock(
                 |shared| {
                     shared.write();
                 }
             );
-            s.send(DeadlineConstant::END).await.unwrap();
+            
+            cx.shared.ees_deadline_event.cancel().await; 
         }
         
     }
 
-    #[task(binds = EXTI0, priority = 16, shared = [event_queue], local = [button])]
+    #[task(binds = EXTI0, priority = 16, shared = [event_queue], local = [button, queue_signal])]
     fn interrupt(mut cx : interrupt::Context) {
         defmt::info!("Interrupt!!!!!!!!!!");
-        cx.shared.event_queue.lock(|shared| {shared.signal()});
+        cx.shared.event_queue.lock(|shared| {shared.signal(cx.local.queue_signal.clone())});
         // clear interrupt
         cx.local.button.clear_interrupt_pending_bit();
     }
